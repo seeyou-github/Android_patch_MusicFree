@@ -1,0 +1,99 @@
+name: Build MusicFree APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    name: Build Android arm64-v8a release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout patch repository
+        uses: actions/checkout@v4
+        with:
+          path: patch
+
+      - name: Checkout MusicFree
+        uses: actions/checkout@v4
+        with:
+          repository: maotoumao/MusicFree
+          path: MusicFree
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: MusicFree/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Patch app name, icon, signing, and ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp patch/TestKey.jks MusicFree/android/app/TestKey.jks
+          cat > MusicFree/android/keystore.properties <<'EOF'
+          RELEASE_STORE_FILE=TestKey.jks
+          RELEASE_STORE_PASSWORD=123321
+          RELEASE_KEY_ALIAS=Test
+          RELEASE_KEY_PASSWORD=123321
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("MusicFree")
+
+          strings = root / "android/app/src/main/res/values/strings.xml"
+          text = strings.read_text(encoding="utf-8")
+          text = text.replace('<string name="app_name">MusicFree</string>', '<string name="app_name">Music</string>')
+          text = text.replace('<string name="playback_channel_name">MusicFree</string>', '<string name="playback_channel_name">Music</string>')
+          strings.write_text(text, encoding="utf-8")
+
+          app_json = root / "app.json"
+          text = app_json.read_text(encoding="utf-8")
+          text = text.replace('"name": "MusicFree"', '"name": "Music"')
+          text = text.replace('"displayName": "MusicFree"', '"displayName": "Music"')
+          app_json.write_text(text, encoding="utf-8")
+
+          gradle = root / "android/app/build.gradle"
+          text = gradle.read_text(encoding="utf-8")
+          text = text.replace('universalApk true', 'universalApk false')
+          text = text.replace('include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"', 'include "arm64-v8a"')
+          gradle.write_text(text, encoding="utf-8")
+          PY
+
+          rm -f MusicFree/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          rm -f MusicFree/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+          for dpi in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            rm -f "MusicFree/android/app/src/main/res/mipmap-${dpi}/ic_launcher.webp"
+            rm -f "MusicFree/android/app/src/main/res/mipmap-${dpi}/ic_launcher_round.webp"
+            rm -f "MusicFree/android/app/src/main/res/mipmap-${dpi}/ic_launcher_foreground.webp"
+            cp patch/icon.png "MusicFree/android/app/src/main/res/mipmap-${dpi}/ic_launcher.png"
+            cp patch/icon.png "MusicFree/android/app/src/main/res/mipmap-${dpi}/ic_launcher_round.png"
+            cp patch/icon.png "MusicFree/android/app/src/main/res/mipmap-${dpi}/ic_launcher_foreground.png"
+          done
+
+      - name: Install dependencies
+        working-directory: MusicFree
+        run: npm ci
+
+      - name: Build release APK
+        working-directory: MusicFree/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Music-arm64-v8a-release
+          path: MusicFree/android/app/build/outputs/apk/release/*arm64-v8a*.apk
+          if-no-files-found: error
