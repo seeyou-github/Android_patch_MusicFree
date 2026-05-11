@@ -59,7 +59,6 @@ jobs:
 
           app_json = root / "app.json"
           text = app_json.read_text(encoding="utf-8")
-          text = text.replace('"name": "MusicFree"', '"name": "Music"')
           text = text.replace('"displayName": "MusicFree"', '"displayName": "Music"')
           app_json.write_text(text, encoding="utf-8")
 
@@ -68,6 +67,11 @@ jobs:
           text = text.replace('universalApk true', 'universalApk false')
           text = text.replace('include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"', 'include "arm64-v8a"')
           gradle.write_text(text, encoding="utf-8")
+
+          app_text = app_json.read_text(encoding="utf-8")
+          main_activity = (root / "android/app/src/main/java/fun/upup/musicfree/MainActivity.kt").read_text(encoding="utf-8")
+          if '"name": "MusicFree"' not in app_text or 'getMainComponentName(): String = "MusicFree"' not in main_activity:
+              raise SystemExit("React Native component name must remain MusicFree; only the display name should be changed.")
           PY
 
           rm -f MusicFree/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
